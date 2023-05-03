@@ -17,6 +17,7 @@ import argparse
 from pathlib import Path
 from tqdm import tqdm
 from data_utils.ModelNetDataLoader import ModelNetDataLoader
+import numpy as np
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
@@ -170,13 +171,20 @@ def main(args):
     best_instance_acc = 0.0
     best_class_acc = 0.0
 
+
+    train_losses = []
+
+    val_accs = []
+    train_accs = []
+
     '''TRANING'''
     logger.info('Start training...')
-    logger.info("Total number of paramerters in networks is {}  ".format(sum(x.numel() for x in classifier.parameters())))
+    logger.info("Total number of parameters in networks is {}  ".format(sum(x.numel() for x in classifier.parameters())))
 
     for epoch in range(start_epoch, args.epoch):
         log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
         mean_correct = []
+        running_loss = 0.0
         classifier = classifier.train()
         
         scheduler.step()
@@ -203,14 +211,20 @@ def main(args):
             correct = pred_choice.eq(target.long().data).cpu().sum()
             mean_correct.append(correct.item() / float(points.size()[0]))
             loss.backward()
+            running_loss += loss.item()
             optimizer.step()
             global_step += 1
 
         train_instance_acc = np.mean(mean_correct)
         log_string('Train Instance Accuracy: %f' % train_instance_acc)
 
+        train_accs.append(train_instance_acc)
+        train_losses.append(running_loss/len(trainDataLoader))
+
         with torch.no_grad():
             instance_acc, class_acc = test(classifier.eval(), testDataLoader, num_class=num_class)
+
+            val_accs.append(instance_acc)
 
             if (instance_acc >= best_instance_acc):
                 best_instance_acc = instance_acc
@@ -234,6 +248,11 @@ def main(args):
                 }
                 torch.save(state, savepath)
             global_epoch += 1
+
+        np.save('train_accs.npy',np.array(train_accs))
+        np.save('train_losses.npy', np.array(train_losses))
+        np.save('val_accs.npy', np.array(val_accs))
+
 
     logger.info('End of training...')
 
